@@ -6,7 +6,8 @@ module Warden
   module Auth0
     # Warden strategy to authenticate a user through a JWT token in the
     # `Authorization` request header
-    class Strategy < Warden::Strategies::Base
+    module Strategy
+
       def valid?
         token_exists? && issuer_claim_valid? && aud_claim_valid?
       end
@@ -51,7 +52,7 @@ module Warden
       end
 
       def user_resolver(decoded_token)
-        raise "TODO: Implement!"
+        raise 'TODO: Implement!'
       end
 
       def configured_aud
