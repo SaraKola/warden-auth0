@@ -54,7 +54,7 @@ module Warden
 
       def aud_claim_valid?
         audience = configured_aud
-        audience_matches?(decoded_token, audience)
+        aud_matches?(decoded_token, audience)
       rescue JWT::DecodeError
         false
       end
@@ -86,7 +86,7 @@ module Warden
         false
       end
 
-      def audience_matches?(payload, issuer_aud)
+      def aud_matches?(payload, issuer_aud)
         token_audience = payload['aud']
         return false unless token_audience
 
