@@ -8,7 +8,7 @@ module Warden
     # `Authorization` request header
     class Strategy < Warden::Strategies::Base
       def valid?
-        token_exists? && issuer_claim_valid? && aud_claim_valid?
+        token_present? && issuer_valid? && audience_valid?
       end
 
       def store?
@@ -16,15 +16,13 @@ module Warden
       end
 
       def authenticate!
-        raise Errors::WrongIssuer, 'wrong issuer' unless issuer_claim_valid?
+        raise Errors::WrongIssuer, 'wrong issuer' unless issuer_valid?
+        raise Errors::WrongAud, 'wrong audience' unless audience_valid?
 
-        raise Errors::WrongAud, 'wrong audience' unless aud_claim_valid?
+        resolver_method = "#{scope}_resolver"
+        raise "unimplemented resolver #{resolver_method}" unless respond_to?(resolver_method)
 
-        method = "#{scope}_resolver"
-        raise "unimplemented resolver #{method}" unless respond_to?(method)
-
-        user = send(method, decoded_token)
-
+        user = send(resolver_method, decoded_token)
         raise Warden::Auth0::Errors::NilUser, 'nil user' unless user
 
         success!(user)
@@ -35,29 +33,37 @@ module Warden
 
       private
 
-      def issuer_claim_valid?
-        issuer = configured_issuer
-        issuer_matches?(decoded_token, issuer)
-      rescue JWT::DecodeError
-        false
+      def token
+        @token ||= HeaderParser.from_env(env)
       end
 
-      def aud_claim_valid?
-        aud = configured_aud
-        aud_matches?(decoded_token, aud)
-      rescue JWT::DecodeError
-        false
+      def token_present?
+        !token.nil?
       end
 
       def decoded_token
         TokenDecoder.new.call(token)
       end
 
-      def configured_aud
-        configured_aud = Warden::Auth0.config.aud
-        raise Errors::NoConfiguredAud if configured_aud.nil?
+      def issuer_valid?
+        issuer = configured_issuer
+        issuer_matches?(decoded_token, issuer)
+      rescue JWT::DecodeError
+        false
+      end
 
-        configured_aud
+      def audience_valid?
+        audience = configured_audience
+        audience_matches?(decoded_token, audience)
+      rescue JWT::DecodeError
+        false
+      end
+
+      def configured_audience
+        audience = Warden::Auth0.config.aud
+        raise Errors::NoConfiguredAud if audience.nil?
+
+        audience
       end
 
       def configured_issuer
@@ -67,36 +73,32 @@ module Warden
         configured_issuer
       end
 
-      def token_exists?
-        !token.nil?
-      end
+      def issuer_matches?(payload, issuer_config)
+        token_issuer = payload['iss'].to_s
+        return false unless token_issuer
 
-      def issuer_matches?(payload, issuer)
-        if issuer.is_a?(String)
-          return payload['iss'] == issuer.to_s
-        elsif issuer.is_a?(Array)
-          return issuer.map(&:to_s).include(payload['iss'])
+        if issuer_config.is_a?(String)
+          return token_issuer == issuer_config.to_s
+        elsif issuer_config.is_a?(Array)
+          return issuer_config.map(&:to_s).include?(token_issuer)
         end
 
         false
       end
 
-      def aud_matches?(payload, aud)
-        if aud.is_a?(String)
-          return true if payload['aud'] == aud.to_s
+      def audience_matches?(payload, issuer_aud)
+        token_audience = payload['aud']
+        return false unless token_audience
 
-          return payload['aud'].is_a?(Array) && payload['aud'].include?(aud)
-        elsif aud.is_a?(Array)
-          return true if aud.include?(payload['aud'])
-
-          return payload['aud'].is_a?(Array) && (payload['aud'] & aud).any?
+        if issuer_aud.is_a?(String)
+          return true if token_audience == issuer_aud.to_s
+          return token_audience.is_a?(Array) && token_audience.include?(issuer_aud)
+        elsif issuer_aud.is_a?(Array)
+          return true if issuer_aud.include?(token_audience)
+          return token_audience.is_a?(Array) && (token_audience & issuer_aud).any?
         end
 
         false
-      end
-
-      def token
-        @token ||= HeaderParser.from_env(env)
       end
     end
   end
