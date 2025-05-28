@@ -8,7 +8,7 @@ module Warden
     # `Authorization` request header
     class Strategy < Warden::Strategies::Base
       def valid?
-        token_present? && issuer_valid? && audience_valid?
+        token_exists? && issuer_claim_valid? && aud_claim_valid?
       end
 
       def store?
@@ -16,8 +16,8 @@ module Warden
       end
 
       def authenticate!
-        raise Errors::WrongIssuer, 'wrong issuer' unless issuer_valid?
-        raise Errors::WrongAud, 'wrong audience' unless audience_valid?
+        raise Errors::WrongIssuer, 'wrong issuer' unless issuer_claim_valid?
+        raise Errors::WrongAud, 'wrong audience' unless aud_claim_valid?
 
         resolver_method = "#{scope}_resolver"
         raise "unimplemented resolver #{resolver_method}" unless respond_to?(resolver_method)
@@ -37,7 +37,7 @@ module Warden
         @token ||= HeaderParser.from_env(env)
       end
 
-      def token_present?
+      def token_exists?
         !token.nil?
       end
 
@@ -45,21 +45,21 @@ module Warden
         TokenDecoder.new.call(token)
       end
 
-      def issuer_valid?
+      def issuer_claim_valid?
         issuer = configured_issuer
         issuer_matches?(decoded_token, issuer)
       rescue JWT::DecodeError
         false
       end
 
-      def audience_valid?
-        audience = configured_audience
+      def aud_claim_valid?
+        audience = configured_aud
         audience_matches?(decoded_token, audience)
       rescue JWT::DecodeError
         false
       end
 
-      def configured_audience
+      def configured_aud
         audience = Warden::Auth0.config.aud
         raise Errors::NoConfiguredAud if audience.nil?
 
