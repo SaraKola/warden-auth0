@@ -17,14 +17,12 @@ module Warden
 
       def authenticate!
         raise Errors::WrongIssuer, 'wrong issuer' unless issuer_claim_valid?
-
         raise Errors::WrongAud, 'wrong audience' unless aud_claim_valid?
 
-        method = "#{scope}_resolver"
-        raise "unimplemented resolver #{method}" unless respond_to?(method)
+        resolver_method = "#{scope}_resolver"
+        raise "unimplemented resolver #{resolver_method}" unless respond_to?(resolver_method)
 
-        user = send(method, decoded_token)
-
+        user = send(resolver_method, decoded_token)
         raise Warden::Auth0::Errors::NilUser, 'nil user' unless user
 
         success!(user)
@@ -35,6 +33,18 @@ module Warden
 
       private
 
+      def token
+        @token ||= HeaderParser.from_env(env)
+      end
+
+      def token_exists?
+        !token.nil?
+      end
+
+      def decoded_token
+        TokenDecoder.new.call(token)
+      end
+
       def issuer_claim_valid?
         issuer = configured_issuer
         issuer_matches?(decoded_token, issuer)
@@ -43,21 +53,17 @@ module Warden
       end
 
       def aud_claim_valid?
-        aud = configured_aud
-        aud_matches?(decoded_token, aud)
+        audience = configured_aud
+        aud_matches?(decoded_token, audience)
       rescue JWT::DecodeError
         false
       end
 
-      def decoded_token
-        TokenDecoder.new.call(token)
-      end
-
       def configured_aud
-        configured_aud = Warden::Auth0.config.aud
-        raise Errors::NoConfiguredAud if configured_aud.nil?
+        audience = Warden::Auth0.config.aud
+        raise Errors::NoConfiguredAud if audience.nil?
 
-        configured_aud
+        audience
       end
 
       def configured_issuer
@@ -67,22 +73,32 @@ module Warden
         configured_issuer
       end
 
-      def token_exists?
-        !token.nil?
+      def issuer_matches?(payload, issuer_config)
+        token_issuer = payload['iss'].to_s
+        return false unless token_issuer
+
+        if issuer_config.is_a?(String)
+          return token_issuer == issuer_config.to_s
+        elsif issuer_config.is_a?(Array)
+          return issuer_config.map(&:to_s).include?(token_issuer)
+        end
+
+        false
       end
 
-      def issuer_matches?(payload, issuer)
-        payload['iss'] == issuer.to_s
-      end
+      def aud_matches?(payload, issuer_aud)
+        token_audience = payload['aud']
+        return false unless token_audience
 
-      def aud_matches?(payload, aud)
-        return true if payload['aud'] == aud.to_s
+        if issuer_aud.is_a?(String)
+          return true if token_audience == issuer_aud.to_s
+          return token_audience.is_a?(Array) && token_audience.include?(issuer_aud)
+        elsif issuer_aud.is_a?(Array)
+          return true if issuer_aud.include?(token_audience)
+          return token_audience.is_a?(Array) && (token_audience & issuer_aud).any?
+        end
 
-        payload['aud'].is_a?(Array) && payload['aud'].include?(aud)
-      end
-
-      def token
-        @token ||= HeaderParser.from_env(env)
+        false
       end
     end
   end
