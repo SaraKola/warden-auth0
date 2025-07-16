@@ -8,6 +8,7 @@ shared_context 'configuration' do
       config.algorithm = "RS256"
       config.token_header = 'Authorization'
       config.jwks_url = "https://my-url.com/.well-known/jwks.json"
+      config.verify_ssl = true
       config.jwks = {}
     end
 

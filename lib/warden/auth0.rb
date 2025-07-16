@@ -34,6 +34,8 @@ module Warden
     # The url to fetch jwks from
     setting :jwks_url
 
+    setting :verify_ssl, default: true
+
     # Store the JWKS after fetching it
     setting :jwks, constructor: ->(jwks) { jwks || fetch_jwks(config.jwks_url) }
 
@@ -51,7 +53,7 @@ module Warden
     end
 
     def self.connection
-      Faraday.new(request: { timeout: 5 }) do |conn|
+      Faraday.new(request: { timeout: 5 }, ssl: { verify: config.verify_ssl }) do |conn|
         conn.response :json
       end
     end
