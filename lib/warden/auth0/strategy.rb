@@ -1,12 +1,23 @@
 # frozen_string_literal: true
 
 require 'warden'
+require 'dry/configurable'
 
 module Warden
   module Auth0
     # Warden strategy to authenticate a user through a JWT token in the
-    # `Authorization` request header
+    # request header (see Warden::Auth0.config.token_header).
+    #
+    # Configure issuer, aud, algorithm, jwks_url on the strategy before adding to Warden.
     class Strategy < Warden::Strategies::Base
+      extend Dry::Configurable
+
+      setting :algorithm
+      setting :issuer
+      setting :aud
+      setting :jwks_url
+      setting :jwks, default: nil
+
       def valid?
         token_exists? && issuer_claim_valid? && aud_claim_valid?
       end
@@ -42,7 +53,8 @@ module Warden
       end
 
       def decoded_token
-        TokenDecoder.new.call(token)
+        cfg = self.class.config
+        TokenDecoder.new(algorithm: cfg.algorithm, jwks: jwks).call(token)
       end
 
       def issuer_claim_valid?
@@ -60,17 +72,22 @@ module Warden
       end
 
       def configured_aud
-        audience = Warden::Auth0.config.aud
+        audience = self.class.config.aud
         raise Errors::NoConfiguredAud if audience.nil?
 
         audience
       end
 
       def configured_issuer
-        configured_issuer = Warden::Auth0.config.issuer
+        configured_issuer = self.class.config.issuer
         raise Errors::NoConfiguredIssuer if configured_issuer.nil?
 
         configured_issuer
+      end
+
+      def jwks
+        cfg = self.class.config
+        cfg.jwks || Warden::Auth0.fetch_jwks(cfg.jwks_url)
       end
 
       def issuer_matches?(payload, issuer_config)
