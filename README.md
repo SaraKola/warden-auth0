@@ -1,30 +1,13 @@
 # Warden::Auth0
 
-[![Gem Version](https://badge.fury.io/rb/warden-jwt_auth.svg)](https://badge.fury.io/rb/warden-jwt_auth)
-[![Build Status](https://travis-ci.org/waiting-for-dev/warden-jwt_auth.svg?branch=master)](https://travis-ci.org/waiting-for-dev/warden-jwt_auth)
-[![Code Climate](https://codeclimate.com/github/waiting-for-dev/warden-jwt_auth/badges/gpa.svg)](https://codeclimate.com/github/waiting-for-dev/warden-jwt_auth)
-[![Test Coverage](https://codeclimate.com/github/waiting-for-dev/warden-jwt_auth/badges/coverage.svg)](https://codeclimate.com/github/waiting-for-dev/warden-jwt_auth/coverage)
+`warden-auth0` is a [Warden](https://github.com/hassox/warden) extension that authenticates users using [JWT](https://jwt.io/) tokens issued by [Auth0](https://auth0.com/) (or any OIDC-compatible provider). It validates tokens using the provider’s JWKS endpoint and enforces issuer and audience claims.
 
-`warden-jwt_auth` is a [warden](https://github.com/hassox/warden) extension which uses [JWT](https://jwt.io/) tokens for user authentication. It follows [secure by default](https://en.wikipedia.org/wiki/Secure_by_default) principle.
-
-This gem is just a replacement for cookies when these can't be used. As
-cookies, a token expired with `warden-jwt_auth` will mandatorily have an
-expiration time. If you need that your users never sign out, you will be better
-off with a solution using refresh tokens, like some implementation of OAuth2.
-
-You can read about which security concerns this library takes into account and about JWT generic secure usage in the following series of posts:
-
-- [Stand Up for JWT Revocation](http://waiting-for-dev.github.io/blog/2017/01/23/stand_up_for_jwt_revocation)
-- [JWT Revocation Strategies](http://waiting-for-dev.github.io/blog/2017/01/24/jwt_revocation_strategies)
-- [JWT Secure Usage](http://waiting-for-dev.github.io/blog/2017/01/25/jwt_secure_usage)
-- [A secure JWT authentication implementation for Rack and Rails](http://waiting-for-dev.github.io/blog/2017/01/26/a_secure_jwt_authentication_implementation_for_rack_and_rails)
-
-If what you need is a JWT authentication library for [devise](https://github.com/plataformatec/devise), better look at [devise-jwt](https://github.com/waiting-for-dev/devise-jwt), which is just a thin layer on top of this gem.
+This gem only handles **verification** of existing tokens. It does not issue or revoke tokens. Sign-in and sign-out (and refresh tokens, if needed) are handled by your Auth0 integration (e.g. frontend SDK or API).
 
 ## Installation
 
 ```ruby
-gem 'warden-jwt_auth'
+gem 'warden-auth0'
 ```
 
 And then execute:
@@ -33,209 +16,135 @@ And then execute:
 
 Or install it yourself as:
 
-    $ gem install warden-jwt_auth
+    $ gem install warden-auth0
 
 ## Usage
 
-You can look at this gem's wiki to see some [example applications](https://github.com/waiting-for-dev/warden-jwt_auth/wiki). Please, add yours if you think it can help somebody.
+At its core, this library provides:
 
-At its core, this library consists of:
+- A Warden strategy that authenticates a user when a valid JWT is present in the request (e.g. `Authorization: Bearer <token>`).
+- Token verification using JWKS (no shared secret): algorithm, issuer, and audience are validated.
 
-- A Warden strategy that authenticates a user if a valid JWT token is present in the request headers.
-- A rack middleware which adds a JWT token to the response headers in configured requests.
-- A rack middleware which revokes JWT tokens in configured requests.
+### Configuration
 
-As you see, JWT revocation is supported. I wrote [why I think JWT tokens revocation is useful and needed](http://waiting-for-dev.github.io/blog/2017/01/23/stand_up_for_jwt_revocation/).
+Configure the main module and the strategy before adding it to Warden.
 
-### Secret key configuration
-
-First of all, you have to configure the secret key that will be used to sign generated tokens.
+**1. Warden::Auth0 (global)**
 
 ```ruby
 Warden::Auth0.configure do |config|
-  config.secret = ENV['WARDEN_JWT_SECRET_KEY']
+  config.token_header = 'Authorization'  # request header used for the Bearer token (default: 'Authorization')
 end
 ```
 
-**Important:** You are encouraged to use a dedicated secret key, different than others in use in your application. If several components share the same secret key, chances that a vulnerability in one of them has a wider impact increase. Also, never share your secrets pushing it to a remote repository, you are better off using an environment variable like in the example.
+**2. Warden::Auth0::Strategy (issuer, audience, JWKS)**
 
-Currently, HS256 algorithm is the default.
-Configure the matching secret and algorithm name to use a different one (e.g. RS256) (see [ruby-jwt](https://github.com/jwt/ruby-jwt#algorithms-and-usage) to see which are supported)
+You must set `issuer`, `aud`, and either `jwks_url` or `jwks`. The strategy will verify the JWT signature using the provider’s public keys (JWKS).
+
 ```ruby
-Warden::Auth0.configure do |config|
-  config.secret = OpenSSL::PKey::RSA.new(ENV['WARDEN_JWT_SECRET_KEY'])
-  config.algorithm = ENV['WARDEN_JWT_ALGORITHM']
+Warden::Auth0::Strategy.configure do |config|
+  config.issuer   = 'https://your-tenant.eu.auth0.com/'
+  config.aud      = 'https://your-api.com'                    # or an array of allowed audiences
+  config.algorithm = 'RS256'
+  config.jwks_url = 'https://your-tenant.eu.auth0.com/.well-known/jwks.json'
+  # config.jwks   = nil   # optional: set a JWT::JWK::Set if you don't want to use jwks_url
+  config.verify_ssl = true  # default: true
 end
 ```
 
-If the algorithm is asymmetric (e.g. RS256) and necessitates a different decoding secret than the encoding secret, configure the `decoding_secret` setting as well.
+- **issuer**: Expected `iss` claim (string or array of strings).
+- **aud**: Expected `aud` claim (string or array of allowed values).
+- **algorithm**: JWT algorithm (e.g. `RS256`).
+- **jwks_url**: URL to the JWKS document; keys are fetched and used to verify the token signature.
+- **jwks**: Optional. A `JWT::JWK::Set` instance; if set, `jwks_url` is not used.
+- **verify_ssl**: Whether to verify SSL when fetching JWKS (default: `true`).
+
+**3. Add the strategy to Warden with a scope resolver**
+
+For each Warden scope you use with this strategy, you must define a resolver method named `#{scope}_resolver`. It receives the decoded token (hash) and must return the user object for that scope, or `nil` to fail authentication.
 
 ```ruby
-Warden::Auth0.configure do |config|
-  config.secret = OpenSSL::PKey::RSA.new(ENV['WARDEN_JWT_PRIVATE_KEY'])
-  config.decoding_secret = OpenSSL::PKey::RSA.new(ENV['WARDEN_JWT_PUBLIC_KEY'])
-  config.algorithm = 'RS256' # or other asymmetric algorithm
-end
-```
-
-### Warden scopes configuration
-
-You have to map the warden scopes that will be authenticatable through JWT, with the user repositories from where these scope user records can be fetched. If a string is supplied, the user repository will first be looked up as a constant.
-
-For instance:
-
-```ruby
-config.mappings = { user: UserRepository }
-```
-
-For this example, `UserRepository` must implement a method `find_for_jwt_authentication` that takes as argument the `sub` claim in the JWT payload. This method should return a user record from `:user` scope:
-
-```ruby
-module UserRepository
-  # @returns User
-  def self.find_for_jwt_authentication(sub)
-    Repo.find_user_by_id(sub)
+Warden::Strategies.add(:auth0, Warden::Auth0::Strategy) do
+  def user_resolver(decoded_token)
+    sub = decoded_token['sub']
+    User.find_by(auth0_id: sub)
   end
 end
 ```
 
-User records must implement a `jwt_subject` method returning what should be encoded in the `sub` claim on dispatch time. Be aware that what is returned must be coercible to string in order to conform with [RFC7519 standard for `sub` claim](https://tools.ietf.org/html/rfc7519#section-4.1.2).
+If you use multiple scopes (e.g. `:user` and `:admin`), define both resolvers:
 
 ```ruby
-User = Struct.new(:id, :name)
-  def jwt_subject
-    id
+Warden::Strategies.add(:auth0, Warden::Auth0::Strategy) do
+  def user_resolver(decoded_token)
+    User.find_by(auth0_id: decoded_token['sub'])
+  end
+
+  def admin_resolver(decoded_token)
+    Admin.find_by(auth0_id: decoded_token['sub'])
   end
 end
 ```
 
-User records may also implement a `jwt_payload` method, which gives it a chance to add something to the JWT payload:
+**4. Enable the strategy for your scopes**
+
+In your Warden configuration (e.g. in Rails):
 
 ```ruby
-def jwt_payload
-  { 'foo' => 'bar' }
-end
+config.warden.default_strategies scope: :user, strategies: [:auth0]
+# and for admin scope, if used:
+config.warden.default_strategies scope: :admin, strategies: [:auth0]
 ```
 
-Just when a token is going to be dispatched to a client, a hook method `on_jwt_dispatch` is invoked, only when it exist, on the user record. This method takes the `token` and the `payload` as arguments.
+### Request authentication
 
-```ruby
-def on_jwt_dispatch(token, payload)
-  # Do something
-end
+Send the JWT in the configured request header (default `Authorization`) as:
+
+```
+Authorization: Bearer <your-jwt>
 ```
 
-### Middlewares addition
+The strategy will:
 
-You need to add `Warden::Auth0::Middleware` to your rack middlewares stack. Actually, it is just a wrapper which adds two middlewares that do the actual job: dispatching tokens and revoking tokens.
-
-### Token dispatch configuration
-
-You need to tell which requests will dispatch tokens for the user that has been previously authenticated (usually through some other warden strategy, such as one requiring username and email parameters).
-
-To configure it, you must provide a bidimensional array, each item being an array of two elements: the request method and a regular expression that must match the request path.
-
-For example:
-
-```ruby
-config.dispatch_requests = [
-                             ['POST', %r{^/sign_in$}]
-                           ]
-```
-
-**Important**: You are encouraged to delimit your regular expression with `^` and `$` to avoid unintentional matches.
-
-Tokens will be returned in the `Authorization` response header (configurable via `config.token_header`), with format `Bearer #{token}`.
-
-### Requests authentication
-
-Once you have a valid token, you can authenticate following requests providing the token in the `Authorization` request header, with format `Bearer #{token}`.
-
-### Revocation configuration
-
-You need to tell which requests will revoke incoming JWT tokens.
-
-To configure it, you must provide a bidimensional array, each item being an array of two elements: the request method and a regular expression that must match the request path.
-
-For example:
-
-```ruby
-config.revocation_requests = [
-                               ['DELETE', %r{^/sign_out$}]
-                             ]
-```
-
-**Important**: You are encouraged to delimit your regular expression with `^` and `$` to avoid unintentional matches.
-
-Besides, you need to configure which revocation strategy will be used for each scope. If a string is supplied, the revocation strategy will first be looked up as a constant.
-
-```ruby
-config.revocation_strategies = { user: RevocationStrategy }
-```
-
-The implementation of the revocation strategy is also on your side. They just need to implement two methods: `jwt_revoked?` and `revoke_jwt`, both of them accepting as parameters the JWT payload and the user record, in this order.
-
-You can read about which [JWT recovation strategies](http://waiting-for-dev.github.io/blog/2017/01/24/jwt_revocation_strategies/) can be implement with their pros and cons.
-
-```ruby
-module RevocationStrategy
-  def self.jwt_revoked?(payload, user)
-    # Does something to check whether the JWT token is revoked for given user
-  end
-
-  def self.revoke_jwt(payload, user)
-    # Does something to revoke the JWT token for given user
-  end
-end
-```
-
-### Requesting client validation
-
-Authentication will be refused if a client requesting to be authenticated through a token is not the same to which it was originally issued. To do so, the content of the header `JWT_AUD` (configurable via `config.aud_header`) is stored as `aud` claim. If you don't want to differentiate between clients, you don't need to provide that header.
-
-**Important:** Be aware that this workflow is not bullet proof. In some scenarios a user can handcraft the request headers, therefore being able to impersonate any client. In such cases you could need something more robust, like an OAuth workflow with client id and client secret.
-
-### Secret rotation
-
-Secret rotation is supported by setting `rotation_secret`. Set the new secret as the `secret` and copy the previous secret to `rotation_secret`
-
-```ruby
-Warden::Auth0.configure do |config|
-  config.secret = ENV['WARDEN_JWT_SECRET_KEY']
-  config.rotation_secret = ENV['WARDEN_JWT_SECRET_KEY_ROTATION']
-end
-```
-
-You can remove the `rotation_secret` when you are condifent that large enough user base has the fetched the token encrypted with the new secret.
+1. Parse the token from the header.
+2. Validate `iss` and `aud` against the configured issuer and audience.
+3. Verify the signature using JWKS from `jwks_url` (or the provided `jwks`).
+4. Call the appropriate `#{scope}_resolver` with the decoded payload and set the user on success.
 
 ### Multiple issuers
 
-When your application handles JWT tokens from multiple sources (e.g. webhooks authenticated via provider JTW tokens) you can configure this gem to use the [issuer claim](https://datatracker.ietf.org/doc/html/rfc7519#section-4.1.1) to only handle tokens it has issued.
+You can allow tokens from more than one issuer by passing an array:
 
 ```ruby
-Warden::Auth0.configure do |config|
-  config.secret = ENV['WARDEN_JWT_SECRET_KEY']
-  config.issuer = 'http://my-application.com'
+Warden::Auth0::Strategy.configure do |config|
+  config.issuer = ['https://tenant-a.auth0.com/', 'https://tenant-b.auth0.com/']
+  # ...
 end
 ```
 
+### Errors
+
+The strategy may raise or use:
+
+- `Warden::Auth0::Errors::NoConfiguredIssuer` – `issuer` not configured.
+- `Warden::Auth0::Errors::NoConfiguredAud` – `aud` not configured.
+- `Warden::Auth0::Errors::WrongIssuer` – token `iss` does not match.
+- `Warden::Auth0::Errors::WrongAud` – token `aud` does not match.
+- `Warden::Auth0::Errors::NilUser` – resolver returned `nil`.
+- `JWT::DecodeError` (and subclasses) – invalid or malformed token.
+
 ## Development
 
-There are docker and docker-compose files configured to create a development environment for this gem. So, if you use Docker you only need to run:
+There are Docker and docker-compose files configured for the development environment. If you use Docker:
 
-`docker-compose up -d`
-
-An then, for example:
-
-`docker-compose exec app rspec`
+```bash
+docker-compose up -d
+docker-compose exec app rspec
+```
 
 ## Contributing
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/waiting-for-dev/warden-jwt_auth. This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to the [Contributor Covenant](http://contributor-covenant.org) code of conduct.
-
-## Release Policy
-
-`warden-jwt_auth` follows the principles of [semantic versioning](http://semver.org/).
+Bug reports and pull requests are welcome on GitHub at https://github.com/sarakola/warden-auth0. This project is intended to be a safe, welcoming space for collaboration, and contributors are expected to adhere to the [Contributor Covenant](http://contributor-covenant.org) code of conduct.
 
 ## License
 
