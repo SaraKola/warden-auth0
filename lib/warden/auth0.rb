@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require 'dry/configurable'
-require 'dry/auto_inject'
 require 'jwt'
 require 'warden'
 require 'faraday'
@@ -10,38 +9,17 @@ module Warden
   # Auth0 authentication plugin for warden.
   #
   # It consists of a strategy which tries to authenticate an user decoding a
-  # token present in the `Authentication` header (as `Bearer %token%`).
+  # token present in the request header (as `Bearer %token%`). The header name
+  # is configured via +token_header+.
   module Auth0
     extend Dry::Configurable
-    # Request header that will be used for receiving and returning the token.
+
+    # Request header used for receiving and returning the token.
     setting :token_header, default: 'Authorization'
-
-    # The algorithm used to encode the token
-    setting :algorithm
-
-    # The issuer claims associated with the tokens
-    #
-    # Will be used to only apply the warden strategy when the issuer matches.
-    # This allows for multiple token issuers being used.
-    # @see https://datatracker.ietf.org/doc/html/rfc7519#section-4.1.1
-    setting :issuer, default: nil
-
-    # The aud claims associated with the tokens
-    #
-    # Will be used to only apply the warden strategy when the audience matches.
-    setting :aud, default: nil
-
-    # The url to fetch jwks from
-    setting :jwks_url
 
     setting :verify_ssl, default: true
 
-    # Store the JWKS after fetching it
-    setting :jwks, constructor: ->(jwks) { jwks || fetch_jwks(config.jwks_url) }
-
-    Import = Dry::AutoInject(config)
-
-    # Method to fetch JWKS from the specified URL
+    # Fetches JWKS from the given URL. Used by the strategy when jwks_url is configured.
     def self.fetch_jwks(jwks_url)
       raise 'No url provided for fetching jwks' if jwks_url.nil?
 

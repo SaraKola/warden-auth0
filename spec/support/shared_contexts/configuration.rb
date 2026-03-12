@@ -3,12 +3,15 @@
 shared_context 'configuration' do
   before do
     Warden::Auth0.configure do |config|
+      config.token_header = 'Authorization'
+      config.verify_ssl = true
+    end
+
+    Warden::Auth0::Strategy.configure do |config|
       config.issuer = 'https://test-dev.eu.auth0.com/'
       config.aud = 'https://test.com/api'
       config.algorithm = "RS256"
-      config.token_header = 'Authorization'
       config.jwks_url = "https://my-url.com/.well-known/jwks.json"
-      config.verify_ssl = true
       config.jwks = {}
     end
 
@@ -19,8 +22,8 @@ shared_context 'configuration' do
     end
   end
 
-  let(:config) { Warden::Auth0.config }
-  let(:token_header) { config.token_header}
+  let(:config) { Warden::Auth0::Strategy.config }
+  let(:token_header) { Warden::Auth0.config.token_header }
   let(:issuer) { config.issuer }
-  let(:env_token_header) { ('HTTP_' + config.token_header.upcase).tr('-', '_') }
+  let(:env_token_header) { ('HTTP_' + Warden::Auth0.config.token_header.upcase).tr('-', '_') }
 end
