@@ -6,6 +6,7 @@ shared_context 'configuration' do
       config.token_header = 'Authorization'
     end
 
+    Warden::Auth0::Strategy.reset_resolved_jwks!
     Warden::Auth0::Strategy.configure do |config|
       config.issuer = 'https://test-dev.eu.auth0.com/'
       config.aud = 'https://test.com/api'

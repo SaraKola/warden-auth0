@@ -16,7 +16,7 @@ module Warden
       setting :issuer
       setting :aud
       setting :jwks_url
-      setting :jwks, constructor: ->(jwks) { jwks || fetch_jwks(config.jwks_url) }
+      setting :jwks
       setting :verify_ssl, default: true
 
       def valid?
@@ -54,8 +54,8 @@ module Warden
       end
 
       def decoded_token
-        cfg = self.class.config
-        TokenDecoder.new(algorithm: cfg.algorithm, jwks: cfg.jwks).call(token)
+        cfg = self.class
+        TokenDecoder.new(algorithm: cfg.config.algorithm, jwks: cfg.resolved_jwks).call(token)
       end
 
       def issuer_claim_valid?
@@ -114,7 +114,15 @@ module Warden
         false
       end
 
-      # Fetches JWKS from the given URL. Used by the strategy when jwks_url is configured.
+      # Returns the configured JWKS, fetching from jwks_url on first access if not explicitly set.
+      def self.resolved_jwks
+        @resolved_jwks ||= config.jwks || fetch_jwks(config.jwks_url)
+      end
+
+      def self.reset_resolved_jwks!
+        @resolved_jwks = nil
+      end
+
       def self.fetch_jwks(jwks_url)
         raise 'No url provided for fetching jwks' if jwks_url.nil?
 
