@@ -16,7 +16,8 @@ module Warden
       setting :issuer
       setting :aud
       setting :jwks_url
-      setting :jwks, default: nil
+      setting :jwks, constructor: ->(jwks) { jwks || fetch_jwks(config.jwks_url) }
+      setting :verify_ssl, default: true
 
       def valid?
         token_exists? && issuer_claim_valid? && aud_claim_valid?
@@ -54,7 +55,7 @@ module Warden
 
       def decoded_token
         cfg = self.class.config
-        TokenDecoder.new(algorithm: cfg.algorithm, jwks: jwks).call(token)
+        TokenDecoder.new(algorithm: cfg.algorithm, jwks: cfg.jwks).call(token)
       end
 
       def issuer_claim_valid?
@@ -85,11 +86,6 @@ module Warden
         configured_issuer
       end
 
-      def jwks
-        cfg = self.class.config
-        cfg.jwks || Warden::Auth0.fetch_jwks(cfg.jwks_url)
-      end
-
       def issuer_matches?(payload, issuer_config)
         token_issuer = payload['iss'].to_s
         return false unless token_issuer
@@ -116,6 +112,23 @@ module Warden
         end
 
         false
+      end
+
+      # Fetches JWKS from the given URL. Used by the strategy when jwks_url is configured.
+      def self.fetch_jwks(jwks_url)
+        raise 'No url provided for fetching jwks' if jwks_url.nil?
+
+        jwks_response = connection.get(jwks_url).body
+        jwks = JWT::JWK::Set.new(jwks_response)
+        jwks.select { |key| key[:use] == 'sig' }
+      rescue StandardError => e
+        raise "Failed to fetch JWKS: #{e.message}"
+      end
+
+      def self.connection
+        Faraday.new(request: { timeout: 5 }, ssl: { verify: config.verify_ssl }) do |conn|
+          conn.response :json
+        end
       end
     end
   end
