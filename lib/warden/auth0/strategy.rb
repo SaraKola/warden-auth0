@@ -15,7 +15,7 @@ module Warden
       setting :algorithm
       setting :issuer
       setting :aud
-      setting :jwks_url
+      setting :jwks_url, constructor: ->(jwks_url) { puts "JWKS URL: #{jwks_url}" ; jwks_url }
       setting :verify_ssl, default: true
 
       # Store the JWKS after fetching it
