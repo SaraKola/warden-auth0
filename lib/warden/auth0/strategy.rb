@@ -19,7 +19,7 @@ module Warden
       setting :verify_ssl, default: true
 
       # Store the JWKS after fetching it
-      setting :jwks, constructor: ->(jwks) { jwks || fetch_jwks(config.jwks_url) }
+      setting :jwks, constructor: ->(jwks) { jwks || Warden::Auth0::Strategy.fetch_jwks(config.jwks_url) }
 
       def valid?
         token_exists? && issuer_claim_valid? && aud_claim_valid?
