@@ -118,7 +118,7 @@ module Warden
 
       # Fetches JWKS from the given URL. Used by the strategy when jwks_url is configured.
       def self.fetch_jwks(jwks_url)
-        puts "Fetching JWKS from #{jwks_url} (config: #{config.inspect})"
+        puts "Fetching JWKS from #{jwks_url}"
         raise 'No url provided for fetching jwks' if jwks_url.nil?
 
         jwks_response = connection.get(jwks_url).body
