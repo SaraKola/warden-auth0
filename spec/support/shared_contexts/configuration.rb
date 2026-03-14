@@ -4,7 +4,6 @@ shared_context 'configuration' do
   before do
     Warden::Auth0.configure do |config|
       config.token_header = 'Authorization'
-      config.verify_ssl = true
     end
 
     Warden::Auth0::Strategy.configure do |config|

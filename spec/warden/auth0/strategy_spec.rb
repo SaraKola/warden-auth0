@@ -156,4 +156,79 @@ describe Warden::Auth0::Strategy do
       end
     end
   end
+
+  describe 'jwks setting constructor' do
+    # RFC 7517 Appendix A.1 RSA public key — used as a sig key fixture
+    let(:sig_key_attrs) do
+      {
+        "kty" => "RSA",
+        "use" => "sig",
+        "n"   => "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+        "e"   => "AQAB",
+        "kid" => "sig-key-1"
+      }
+    end
+
+    let(:enc_key_attrs) do
+      {
+        "kty" => "RSA",
+        "use" => "enc",
+        "n"   => "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+        "e"   => "AQAB",
+        "kid" => "enc-key-1"
+      }
+    end
+
+    let(:jwks_url)           { 'https://example.auth0.com/.well-known/jwks.json' }
+    let(:jwks_response_body) { { "keys" => [sig_key_attrs, enc_key_attrs] } }
+    let(:faraday_response)   { instance_double(Faraday::Response, body: jwks_response_body) }
+    let(:faraday_connection) { instance_double(Faraday::Connection, get: faraday_response) }
+
+    before do
+      described_class.configure do |config|
+        config.algorithm = 'RS256'
+        config.issuer    = 'https://example.auth0.com/'
+        config.aud       = 'https://api.example.com'
+        config.jwks_url  = jwks_url
+      end
+    end
+
+    context 'when jwks is explicitly provided' do
+      let(:preset_jwks) { [instance_double(JWT::JWK::RSA)] }
+
+      it 'stores the value as-is without making an HTTP request' do
+        expect(described_class).not_to receive(:connection)
+        described_class.config.jwks = preset_jwks
+        expect(described_class.config.jwks).to eq(preset_jwks)
+      end
+    end
+
+    context 'when jwks is nil' do
+      before do
+        allow(described_class).to receive(:connection).and_return(faraday_connection)
+        described_class.config.jwks = nil
+      end
+
+      it 'fetches JWKS from the configured URL' do
+        expect(faraday_connection).to have_received(:get).with(jwks_url)
+      end
+
+      it 'returns only keys whose use is sig' do
+        expect(described_class.config.jwks.map { |k| k[:use] }).to all(eq('sig'))
+      end
+
+      it 'excludes enc keys' do
+        expect(described_class.config.jwks.none? { |k| k[:use] == 'enc' }).to be(true)
+      end
+    end
+
+    context 'when jwks is nil and jwks_url is nil' do
+      before { described_class.config.jwks_url = nil }
+
+      it 'raises an error indicating the URL is missing' do
+        expect { described_class.config.jwks = nil }
+          .to raise_error(RuntimeError, /Failed to fetch JWKS: No url provided/)
+      end
+    end
+  end
 end
