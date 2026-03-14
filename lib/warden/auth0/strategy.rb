@@ -15,11 +15,11 @@ module Warden
       setting :algorithm
       setting :issuer
       setting :aud
-      setting :jwks_url, constructor: ->(jwks_url) { puts "JWKS URL: #{jwks_url}" ; jwks_url }
+      setting :jwks_url
       setting :verify_ssl, default: true
 
       # Store the JWKS after fetching it
-      setting :jwks, constructor: ->(jwks) { jwks || fetch_jwks(config.jwks_url) }
+      setting :jwks, default: nil, constructor: ->(jwks) { jwks || fetch_jwks(config.jwks_url) }
 
       def valid?
         token_exists? && issuer_claim_valid? && aud_claim_valid?

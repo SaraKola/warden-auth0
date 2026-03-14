@@ -206,11 +206,15 @@ describe Warden::Auth0::Strategy do
     context 'when jwks is nil' do
       before do
         allow(described_class).to receive(:connection).and_return(faraday_connection)
-        described_class.config.jwks = nil
       end
 
       it 'fetches JWKS from the configured URL' do
-        expect(faraday_connection).to have_received(:get).with(jwks_url)
+        expect(faraday_connection).to receive(:get).with(jwks_url)
+
+        expect(described_class.config.jwks_url).to eq(jwks_url)
+        described_class.config.jwks = nil
+
+        expect(described_class.config.jwks).to be_an(Array)
       end
 
       it 'returns only keys whose use is sig' do
