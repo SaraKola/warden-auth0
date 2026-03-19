@@ -174,7 +174,7 @@ describe Warden::Auth0::Strategy do
     end
   end
 
-  describe 'jwks setting constructor' do
+  describe 'explicit jwks configuration' do
     # RFC 7517 Appendix A.1 RSA public key — used as a sig key fixture
     let(:sig_key_attrs) do
       {
@@ -196,7 +196,7 @@ describe Warden::Auth0::Strategy do
       }
     end
 
-    let(:jwks_url)           { 'https://example.auth0.com/.well-known/jwks.json' }
+    let(:jwks_endpoint)      { 'https://example.auth0.com/.well-known/jwks.json' }
     let(:jwks_response_body) { { "keys" => [sig_key_attrs, enc_key_attrs] } }
     let(:faraday_response)   { instance_double(Faraday::Response, body: jwks_response_body) }
     let(:faraday_connection) { instance_double(Faraday::Connection, get: faraday_response) }
@@ -206,7 +206,6 @@ describe Warden::Auth0::Strategy do
         config.algorithm = 'RS256'
         config.issuer    = 'https://example.auth0.com/'
         config.aud       = 'https://api.example.com'
-        config.jwks_url  = jwks_url
       end
     end
 
@@ -220,32 +219,44 @@ describe Warden::Auth0::Strategy do
       end
     end
 
-    context 'when jwks is nil' do
+    context 'when fetching jwks explicitly' do
       before do
         allow(described_class).to receive(:connection).and_return(faraday_connection)
       end
 
-      it 'fetches JWKS from the configured URL' do
-        expect(described_class.config.jwks_url).to eq(jwks_url)
-        expect(described_class.config.jwks).to be_an(Array)
+      it 'fetches JWKS from the provided URL' do
+        expect(described_class.fetch_jwks(jwks_endpoint)).to be_an(Array)
       end
 
       it 'returns only keys whose use is sig' do
-        expect(described_class.config.jwks.map { |k| k[:use] }).to all(eq('sig'))
+        expect(described_class.fetch_jwks(jwks_endpoint).map { |k| k[:use] }).to all(eq('sig'))
       end
 
       it 'excludes enc keys' do
-        expect(described_class.config.jwks.none? { |k| k[:use] == 'enc' }).to be(true)
+        expect(described_class.fetch_jwks(jwks_endpoint).none? { |k| k[:use] == 'enc' }).to be(true)
       end
     end
 
-    context 'when jwks is nil and jwks_url is nil' do
-      before { described_class.config.jwks_url = nil }
-
+    context 'when fetch URL is nil' do
       it 'raises an error indicating the URL is missing' do
-        expect { described_class.config.jwks = nil }
+        expect { described_class.fetch_jwks(nil) }
           .to raise_error(RuntimeError, /Failed to fetch JWKS: No url provided/)
       end
+    end
+  end
+
+  describe 'strategy setup without URL setting' do
+    it 'keeps explicit jwks configuration' do
+      expect do
+        described_class.configure do |config|
+          config.algorithm = 'RS256'
+          config.issuer    = 'https://example.auth0.com/'
+          config.aud       = 'https://api.example.com'
+          config.jwks      = []
+        end
+      end.not_to raise_error
+
+      expect(described_class.config.jwks).to eq([])
     end
   end
 end

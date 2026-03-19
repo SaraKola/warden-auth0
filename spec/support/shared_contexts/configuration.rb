@@ -10,7 +10,6 @@ shared_context 'configuration' do
       config.issuer = 'https://test-dev.eu.auth0.com/'
       config.aud = 'https://test.com/api'
       config.algorithm = "RS256"
-      config.jwks_url = "https://my-url.com/.well-known/jwks.json"
       config.jwks = {}
     end
 
