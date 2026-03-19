@@ -19,7 +19,7 @@ module Warden
       setting :verify_ssl, default: true
 
       # Store the JWKS after fetching it
-      setting :jwks, default: nil, constructor: ->(jwks) { jwks || fetch_jwks(config.jwks_url) }
+      setting :jwks, default: nil, constructor: ->(jwks) { jwks || fetch_jwks }
 
       def valid?
         token_exists? && issuer_claim_valid? && aud_claim_valid?
@@ -117,11 +117,11 @@ module Warden
       end
 
       # Fetches JWKS from the given URL. Used by the strategy when jwks_url is configured.
-      def self.fetch_jwks(jwks_url)
+      def self.fetch_jwks
+        jwks_url = config.jwks_url
         puts "Fetching JWKS from #{jwks_url}"
         raise 'No url provided for fetching jwks' if jwks_url.nil?
-
-        jwks_response = connection.get(jwks_url).body
+        jwks_response = self.connection.get(jwks_url).body
         jwks = JWT::JWK::Set.new(jwks_response)
         jwks.select { |key| key[:use] == 'sig' }
       rescue StandardError => e
