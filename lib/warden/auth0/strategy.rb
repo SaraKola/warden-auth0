@@ -8,18 +8,17 @@ module Warden
     # Warden strategy to authenticate a user through a JWT token in the
     # request header (see Warden::Auth0.config.token_header).
     #
-    # Configure issuer, aud, algorithm, jwks_url on the strategy before adding to Warden.
+    # Configure issuer, aud, algorithm on the strategy before adding to Warden.
     class Strategy < Warden::Strategies::Base
       extend Dry::Configurable
 
       setting :algorithm
       setting :issuer
       setting :aud
-      setting :jwks_url
       setting :verify_ssl, default: true
 
       # Store the JWKS after fetching it
-      setting :jwks, default: nil, constructor: ->(jwks) { jwks || fetch_jwks }
+      setting :jwks
 
       def valid?
         token_exists? && issuer_claim_valid? && aud_claim_valid?
@@ -116,9 +115,8 @@ module Warden
         false
       end
 
-      # Fetches JWKS from the given URL. Used by the strategy when jwks_url is configured.
-      def self.fetch_jwks
-        jwks_url = config.jwks_url
+      # Fetches JWKS from the given URL.
+      def self.fetch_jwks(jwks_url)
         puts "Fetching JWKS from #{jwks_url}"
         raise 'No url provided for fetching jwks' if jwks_url.nil?
         jwks_response = self.connection.get(jwks_url).body

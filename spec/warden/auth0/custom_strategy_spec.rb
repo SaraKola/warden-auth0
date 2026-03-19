@@ -42,14 +42,13 @@ describe Warden::Auth0::Strategy do
         config.algorithm = 'RS256'
         config.issuer    = 'https://example.auth0.com/'
         config.aud       = 'https://api.example.com'
-        config.jwks_url  = jwks_url
+        config.jwks      = CustomStrategy.fetch_jwks(jwks_url)
       end
       allow(::JWT).to receive(:decode).and_return [token_payload, {}]
     end
   
 
     it 'fetches JWKS from the configured URL' do
-      expect(CustomStrategy.config.jwks_url).to eq(jwks_url)
       expect(CustomStrategy.config.jwks).to be_an(Array)
     end
   end
