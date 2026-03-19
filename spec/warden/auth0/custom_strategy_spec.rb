@@ -37,11 +37,7 @@ describe Warden::Auth0::Strategy do
       allow(described_class).to receive(:connection).and_return(default_faraday_connection)
     end
 
-    before do 
-      described_class.configure do |config|
-        config.jwks_url = jwks_url
-      end
-      
+    before do       
       CustomStrategy.configure do |config|
         config.algorithm = 'RS256'
         config.issuer    = 'https://example.auth0.com/'
