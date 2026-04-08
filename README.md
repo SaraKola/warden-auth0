@@ -39,6 +39,29 @@ Or install it yourself as:
 
 You can look at this gem's wiki to see some [example applications](https://github.com/waiting-for-dev/warden-jwt_auth/wiki). Please, add yours if you think it can help somebody.
 
+### Auth0 JWT strategy and JWKS
+
+Tokens are verified with `issuer`, `audience`, `algorithm`, and a **JWKS** object passed to `ruby-jwt`. The strategy does **not** define a `jwks_url` setting: you assign `jwks` yourself, usually once at boot.
+
+```ruby
+Warden::Auth0::Strategy.configure do |config|
+  config.issuer = 'https://YOUR_DOMAIN.auth0.com/'
+  config.aud = 'https://your-api-identifier' # Auth0 API audience
+  config.algorithm = 'RS256'
+  config.jwks = Warden::Auth0::Strategy.fetch_jwks(
+    'https://YOUR_DOMAIN.auth0.com/.well-known/jwks.json'
+  )
+  # Optional: TLS verification for JWKS HTTP fetch (default: true)
+  # config.verify_ssl = true
+end
+```
+
+`fetch_jwks` returns signing keys (`use: sig`) suitable for verification. For tests or advanced cases, set `config.jwks` to any value accepted by `JWT.decode`’s `jwks:` option (see [ruby-jwt](https://github.com/jwt/ruby-jwt)).
+
+**Migration:** If you previously relied on a `jwks_url` strategy setting, remove it and set `jwks` explicitly as above (or load keys another way and assign `config.jwks`).
+
+Register the strategy and implement a resolver for your Warden scope (e.g. `user_resolver`) as in the examples under [Warden scopes configuration](#warden-scopes-configuration).
+
 At its core, this library consists of:
 
 - A Warden strategy that authenticates a user if a valid JWT token is present in the request headers.

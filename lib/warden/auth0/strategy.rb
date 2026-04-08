@@ -8,15 +8,17 @@ module Warden
     # Warden strategy to authenticate a user through a JWT token in the
     # request header (see Warden::Auth0.config.token_header).
     #
-    # Configure issuer, aud, algorithm, jwks_url on the strategy before adding to Warden.
+    # Configure issuer, aud, algorithm on the strategy before adding to Warden.
     class Strategy < Warden::Strategies::Base
       extend Dry::Configurable
 
       setting :algorithm
       setting :issuer
       setting :aud
-      setting :jwks_url
-      setting :jwks, default: nil
+      setting :verify_ssl, default: true
+
+      # Store the JWKS after fetching it
+      setting :jwks
 
       def valid?
         token_exists? && issuer_claim_valid? && aud_claim_valid?
@@ -54,7 +56,7 @@ module Warden
 
       def decoded_token
         cfg = self.class.config
-        TokenDecoder.new(algorithm: cfg.algorithm, jwks: jwks).call(token)
+        TokenDecoder.new(algorithm: cfg.algorithm, jwks: cfg.jwks).call(token)
       end
 
       def issuer_claim_valid?
@@ -85,11 +87,6 @@ module Warden
         configured_issuer
       end
 
-      def jwks
-        cfg = self.class.config
-        cfg.jwks || Warden::Auth0.fetch_jwks(cfg.jwks_url)
-      end
-
       def issuer_matches?(payload, issuer_config)
         token_issuer = payload['iss'].to_s
         return false unless token_issuer
@@ -116,6 +113,23 @@ module Warden
         end
 
         false
+      end
+
+      # Fetches JWKS from the given URL.
+      def self.fetch_jwks(jwks_url)
+        puts "Fetching JWKS from #{jwks_url}"
+        raise 'No url provided for fetching jwks' if jwks_url.nil?
+        jwks_response = self.connection.get(jwks_url).body
+        jwks = JWT::JWK::Set.new(jwks_response)
+        jwks.select { |key| key[:use] == 'sig' }
+      rescue StandardError => e
+        raise "Failed to fetch JWKS: #{e.message}"
+      end
+
+      def self.connection
+        Faraday.new(request: { timeout: 5 }, ssl: { verify: config.verify_ssl }) do |conn|
+          conn.response :json
+        end
       end
     end
   end

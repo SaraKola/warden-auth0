@@ -4,14 +4,12 @@ shared_context 'configuration' do
   before do
     Warden::Auth0.configure do |config|
       config.token_header = 'Authorization'
-      config.verify_ssl = true
     end
 
     Warden::Auth0::Strategy.configure do |config|
       config.issuer = 'https://test-dev.eu.auth0.com/'
       config.aud = 'https://test.com/api'
       config.algorithm = "RS256"
-      config.jwks_url = "https://my-url.com/.well-known/jwks.json"
       config.jwks = {}
     end
 

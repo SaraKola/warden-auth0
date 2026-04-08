@@ -1,15 +1,32 @@
 # frozen_string_literal: true
 
 require 'spec_helper'
+require 'rack'
 
 describe Warden::Auth0::Strategy do
   include_context 'fixtures'
   include_context 'configuration'
 
   let(:token_payload) { valid_payload }
+  let(:default_sig_key_attrs) do
+    {
+      "kty" => "RSA",
+      "use" => "sig",
+      "n" => "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+      "e" => "AQAB",
+      "kid" => "default-sig-key"
+    }
+  end
+  let(:default_jwks_response_body) { { "keys" => [default_sig_key_attrs] } }
+  let(:default_faraday_response) { instance_double(Faraday::Response, body: default_jwks_response_body) }
+  let(:default_faraday_connection) { instance_double(Faraday::Connection, get: default_faraday_response) }
 
   let(:env) { { 'HTTP_AUTHORIZATION' => 'Bearer some-token' } }
   let(:scope) { 'user' }
+
+  prepend_before do
+    allow(described_class).to receive(:connection).and_return(default_faraday_connection)
+  end
 
   before do
     allow(::JWT).to receive(:decode).and_return [token_payload, {}]
@@ -154,6 +171,92 @@ describe Warden::Auth0::Strategy do
       it 'halts authentication' do
         expect(subject).to be_halted
       end
+    end
+  end
+
+  describe 'explicit jwks configuration' do
+    # RFC 7517 Appendix A.1 RSA public key — used as a sig key fixture
+    let(:sig_key_attrs) do
+      {
+        "kty" => "RSA",
+        "use" => "sig",
+        "n"   => "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+        "e"   => "AQAB",
+        "kid" => "sig-key-1"
+      }
+    end
+
+    let(:enc_key_attrs) do
+      {
+        "kty" => "RSA",
+        "use" => "enc",
+        "n"   => "0vx7agoebGcQSuuPiLJXZptN9nndrQmbXEps2aiAFbWhM78LhWx4cbbfAAtVT86zwu1RK7aPFFxuhDR1L6tSoc_BJECPebWKRXjBZCiFV4n3oknjhMstn64tZ_2W-5JsGY4Hc5n9yBXArwl93lqt7_RN5w6Cf0h4QyQ5v-65YGjQR0_FDW2QvzqY368QQMicAtaSqzs8KJZgnYb9c7d0zgdAZHzu6qMQvRL5hajrn1n91CbOpbISD08qNLyrdkt-bFTWhAI4vMQFh6WeZu0fM4lFd2NcRwr3XPksINHaQ-G_xBniIqbw0Ls1jF44-csFCur-kEgU8awapJzKnqDKgw",
+        "e"   => "AQAB",
+        "kid" => "enc-key-1"
+      }
+    end
+
+    let(:jwks_endpoint)      { 'https://example.auth0.com/.well-known/jwks.json' }
+    let(:jwks_response_body) { { "keys" => [sig_key_attrs, enc_key_attrs] } }
+    let(:faraday_response)   { instance_double(Faraday::Response, body: jwks_response_body) }
+    let(:faraday_connection) { instance_double(Faraday::Connection, get: faraday_response) }
+
+    before do
+      described_class.configure do |config|
+        config.algorithm = 'RS256'
+        config.issuer    = 'https://example.auth0.com/'
+        config.aud       = 'https://api.example.com'
+      end
+    end
+
+    context 'when jwks is explicitly provided' do
+      let(:preset_jwks) { [instance_double(JWT::JWK::RSA)] }
+
+      it 'stores the value as-is without making an HTTP request' do
+        expect(described_class).not_to receive(:connection)
+        described_class.config.jwks = preset_jwks
+        expect(described_class.config.jwks).to eq(preset_jwks)
+      end
+    end
+
+    context 'when fetching jwks explicitly' do
+      before do
+        allow(described_class).to receive(:connection).and_return(faraday_connection)
+      end
+
+      it 'fetches JWKS from the provided URL' do
+        expect(described_class.fetch_jwks(jwks_endpoint)).to be_an(Array)
+      end
+
+      it 'returns only keys whose use is sig' do
+        expect(described_class.fetch_jwks(jwks_endpoint).map { |k| k[:use] }).to all(eq('sig'))
+      end
+
+      it 'excludes enc keys' do
+        expect(described_class.fetch_jwks(jwks_endpoint).none? { |k| k[:use] == 'enc' }).to be(true)
+      end
+    end
+
+    context 'when fetch URL is nil' do
+      it 'raises an error indicating the URL is missing' do
+        expect { described_class.fetch_jwks(nil) }
+          .to raise_error(RuntimeError, /Failed to fetch JWKS: No url provided/)
+      end
+    end
+  end
+
+  describe 'strategy setup without URL setting' do
+    it 'keeps explicit jwks configuration' do
+      expect do
+        described_class.configure do |config|
+          config.algorithm = 'RS256'
+          config.issuer    = 'https://example.auth0.com/'
+          config.aud       = 'https://api.example.com'
+          config.jwks      = []
+        end
+      end.not_to raise_error
+
+      expect(described_class.config.jwks).to eq([])
     end
   end
 end
